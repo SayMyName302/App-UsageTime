@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:sqflite/sqflite.dart';
 
 class TimerApp extends StatefulWidget {
@@ -87,6 +88,20 @@ class _TimerAppState extends State<TimerApp> with WidgetsBindingObserver {
       );
     }
   }
+  Future<List<Map<String, dynamic>>> _getWeekData() async {
+final dateToday = DateTime.now();
+final firstDayOfWeek = dateToday.subtract(Duration(days: dateToday.weekday - 1));
+final lastDayOfWeek = firstDayOfWeek.add(Duration(days: 6));
+
+final db = await widget.database;
+final List<Map<String, dynamic>> maps = await db.rawQuery(
+  'SELECT SUM(seconds_elapsed) AS total_seconds, date FROM timer WHERE date BETWEEN ? AND ? GROUP BY strftime("%W", date) ORDER BY date DESC',
+  [firstDayOfWeek.subtract(Duration(days: 7)).toString().substring(0, 10), lastDayOfWeek.toString().substring(0, 10)],
+);
+return maps;
+
+}
+
 
   Future<void> displayAllData() async {
     final List<Map<String, dynamic>> maps = await database.query('timer');
@@ -114,22 +129,40 @@ class _TimerAppState extends State<TimerApp> with WidgetsBindingObserver {
     return '$hourString$minuteString$secondString';
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Timer App'),
-      ),
-      body: Center(
-        child: Text(
-          'Time elapsed: ${getTimerString()}',
-          style: const TextStyle(fontSize: 24),
-        ),
-      ),
-    );
-  }
+@override
+Widget build(BuildContext context) {
+  return Scaffold(
+    appBar: AppBar(
+      title: const Text('Timer App'),
+    ),
+    body: FutureBuilder<List<Map<String, dynamic>>>(
+      future: _getWeekData(),
+      builder: (BuildContext context, AsyncSnapshot<List<Map<String, dynamic>>> snapshot) {
+        if (snapshot.hasData) {
+          final data = snapshot.data!;
+          return ListView.builder(
+            itemCount: data.length,
+            itemBuilder: (BuildContext context, int index) {
+              final date = DateTime.parse(data[index]['date']);
+              final totalSeconds = data[index]['total_seconds'] as int;
+              final duration = Duration(seconds: totalSeconds);
+              final weekText = index == 0 ? 'Current Week' : 'Previous Week';
+              return ListTile(
+                title: Text('$weekText (${DateFormat.yMd().format(date.subtract(Duration(days: date.weekday - 1)))} - ${DateFormat.yMd().format(date.add(Duration(days: 7 - date.weekday)))})'),
+                subtitle: Text('Total time: ${duration.inHours} hours, ${(duration.inMinutes % 60).toString().padLeft(2, '0')} minutes, ${(duration.inSeconds % 60).toString().padLeft(2, '0')} seconds'),
+              );
+            },
+          );
+        } else if (snapshot.hasError) {
+          return Text('${snapshot.error}');
+        }
+        return const CircularProgressIndicator();
+      },
+    ),
+  );
+}
 
-  @override
+ @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
