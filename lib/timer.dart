@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:sqflite/sqflite.dart';
+/// The TimerApp widget is a stateful widget that manages the main timer functionality and communicates with a local database.
+/// @param {Database} database: The local database used to store and retrieve timer data.
 
 class TimerApp extends StatefulWidget {
   
@@ -14,10 +16,14 @@ class TimerApp extends StatefulWidget {
 }
 
 class _TimerAppState extends State<TimerApp> with WidgetsBindingObserver {
+ double _percentageDifference = 0.0;
 List<Map<String, dynamic>> yearData = [];
   late Timer _timer;
   int _secondsElapsed = 0;
   late DateTime _currentDate;
+
+   /// Getter method for the local database object passed to the TimerApp widget.
+   /// @returns {Database}: The local database object.
 
   Database get database => widget.database;
 
@@ -25,11 +31,14 @@ List<Map<String, dynamic>> yearData = [];
   void initState() {
     super.initState();
     WidgetsBinding.instance?.addObserver(this);
+  // Initialize instance variables and start timer.
+
     _currentDate = DateTime.now();
     _getSecondsElapsed();
     _startTimer();
     displayAllData();
 _loadYearData();
+  
   }
 
 
@@ -42,6 +51,9 @@ _loadYearData();
     _stopTimer();
   }
 
+
+ /// Method to start the timer that updates the _secondsElapsed variable every second.
+
   void _startTimer() {
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       setState(() {
@@ -51,10 +63,13 @@ _loadYearData();
       });
     });
   }
-
+ /// Method to stop the timer when the TimerApp widget is disposed.
   void _stopTimer() {
     _timer.cancel();
   }
+
+
+   /// Method to retrieve the seconds elapsed from the local database for the current day.
 
   Future<void> _getSecondsElapsed() async {
     final List<Map<String, dynamic>> maps = await database.query('timer',
@@ -66,6 +81,15 @@ _loadYearData();
       });
     }
   }
+
+
+  /// Method to update the seconds elapsed in the local database for the current day.
+  /// If a row already exists for the current day, update that row with the new value.
+  /// Otherwise, insert a new row for the current day with the new value.
+  /// @param {DateTime} date: The current date.
+  /// @param {int} secondsElapsed: The number of seconds elapsed for the current day.
+
+
 
   Future<void> _updateSecondsElapsed(DateTime date, int secondsElapsed) async {
     // Ensure that the database is created
@@ -94,6 +118,22 @@ _loadYearData();
       );
     }
   }
+
+/// Fetches the data for the current week from the 'timer' table of the database
+///
+/// This function uses the current date to determine the first and last day of the current week,
+/// then queries the 'timer' table for data between those dates. The data is aggregated by week
+/// using the strftime function and sorted in descending order by date. The resulting list of maps
+/// contains the total number of seconds elapsed for each week, as well as the date of the last day
+/// of the week.
+///
+/// Returns a [Future] that resolves to a list of maps, where each map has the following keys:
+///
+/// - 'total_seconds': the total number of seconds elapsed during the week
+/// - 'date': the date of the last day of the week, in the format 'yyyy-mm-dd
+
+
+
   Future<List<Map<String, dynamic>>> _getWeekData() async {
 final dateToday = DateTime.now();
 final firstDayOfWeek = dateToday.subtract(Duration(days: dateToday.weekday - 1));
@@ -113,6 +153,54 @@ final List<Map<String, dynamic>> maps = await db.rawQuery(
 return maps;
 
 }
+// This method returns a Future that will eventually resolve to a double representing the percentage difference between
+// the number of seconds elapsed during the current week and the previous week.
+
+Future<double> getWeeklyPercentageDifference() async {
+  // Get today's date and calculate the first day of the current week
+  final now = DateTime.now();
+  final firstDayOfWeek = DateTime(now.year, now.month, now.day).subtract(Duration(days: now.weekday - 1));
+
+  // Calculate the first day of the previous week
+  final firstDayOfPreviousWeek = firstDayOfWeek.subtract(Duration(days: 7));
+
+  // Query the database to get the seconds elapsed for the current week
+  final currentWeekSecondsElapsed = await _getSecondsElapsedInRange(firstDayOfWeek, now) as int;
+
+  // Query the database to get the seconds elapsed for the previous week
+  final previousWeekSecondsElapsed = await _getSecondsElapsedInRange(firstDayOfPreviousWeek, firstDayOfWeek.subtract(Duration(days: 1))) as int;
+
+  // Calculate the percentage difference between the current week and the previous week
+  double percentageDifference = 0;
+  if (previousWeekSecondsElapsed != 0) {
+    percentageDifference = (currentWeekSecondsElapsed - previousWeekSecondsElapsed) / previousWeekSecondsElapsed * 100;
+  }
+
+  // Return the percentage difference
+  return percentageDifference;
+}
+
+// This private method queries the database to get the total number of seconds elapsed between the start and end dates.
+// It returns a Future that will eventually resolve to an Object representing the total seconds elapsed (or 0 if no rows were returned).
+
+Future<Object> _getSecondsElapsedInRange(DateTime startDate, DateTime endDate) async {
+  // Query the database to get the total seconds elapsed in the specified date range
+  final result = await database.rawQuery(
+    'SELECT SUM(seconds_elapsed) FROM timer WHERE date BETWEEN ? AND ?',
+    [startDate.toString().substring(0, 10), endDate.toString().substring(0, 10)]
+  );
+  // Return the total seconds elapsed (or 0 if no rows were returned)
+  return result.first.values.first ?? 0;
+}
+
+
+
+
+
+
+
+
+
 Future<List<Map<String, dynamic>>> _getYearData() async {
   final dateToday = DateTime.now();
   final currentYear = dateToday.year;
@@ -161,18 +249,23 @@ Future<List<Map<String, dynamic>>> _getMonthData() async {
     setState(() {});
   }
 
-  String getTimerString() {
-    final int hours = _secondsElapsed ~/ 3600;
-    final int minutes = (_secondsElapsed % 3600) ~/ 60;
-    final int seconds = _secondsElapsed % 60;
+ // This method returns a string representing the number of hours, minutes, and seconds elapsed e.g converts timer seconds to 1Hr 2Min 1sec format.
+String getTimerString() {
+  // Calculate the number of hours, minutes, and seconds
+  final int hours = _secondsElapsed ~/ 3600;
+  final int minutes = (_secondsElapsed % 3600) ~/ 60;
+  final int seconds = _secondsElapsed % 60;
 
-    final String hourString = hours > 0 ? '$hours hour ' : '';
-    final String minuteString =
-        minutes > 0 || hours > 0 ? '$minutes minute ' : '';
-    final String secondString = '$seconds second';
+  // Create strings representing the hours, minutes, and seconds
+  final String hourString = hours > 0 ? '$hours hour ' : '';
+  final String minuteString =
+      minutes > 0 || hours > 0 ? '$minutes minute ' : '';
+  final String secondString = '$seconds second';
 
-    return '$hourString$minuteString$secondString';
-  }
+  // Combine the strings and return the result
+  return '$hourString$minuteString$secondString';
+}
+
    Future<void> _loadYearData() async {
     final data = await _getYearData();
     setState(() {
@@ -284,7 +377,28 @@ Widget build(BuildContext context) {
       }
     },
         
-  )
+  ),
+  const SizedBox(height: 19,),
+  
+ FutureBuilder<double>(
+          future: getWeeklyPercentageDifference(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return CircularProgressIndicator();
+            } else if (snapshot.hasError) {
+              return Text('Error: ${snapshot.error}');
+            } else {
+              final percentageDifference = snapshot.data!;
+              return Text(
+                'Weekly percentage difference: ${percentageDifference.toStringAsFixed(2)}%',
+                style: TextStyle(fontSize: 16.0),
+              );
+            }
+          },
+        ),
+      
+    
+  
         ]
       )
     )
